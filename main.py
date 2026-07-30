@@ -1306,6 +1306,11 @@ async def resume_clocks():
  
 # ═══════════════════════════════════════════════════
 # MAIN
+
+# --- START HANDLER ---
+@router.message(Command("start"))
+async def start_command(message: Message):
+    await message.answer("Salom! Bot muvaffaqiyatli ishga tushdi va ishlamoqda! 🚀")
 # ═══════════════════════════════════════════════════
 async def on_startup(bot: Bot):
     await resume_clocks()
