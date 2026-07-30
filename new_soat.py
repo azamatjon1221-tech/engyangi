@@ -1,407 +1,505 @@
-# =====================================================================
-# FULL SOAT BOT — MUKAMMAL VA ISHLAYDIGAN TAYYOR KOD (Aiogram 3 + Telethon)
-# =====================================================================
+# ═══════════════════════════════════════════════════════════════
+# SOAT BOT — BITTA FAYLDA TO'LIQ KOD
+# Faqat shu faylni ishga tushiring: python main.py
+# ═══════════════════════════════════════════════════════════════
 
-import logging
 import asyncio
-import io
 import sqlite3
+import logging
+import os
 from datetime import datetime
-import pytz
 
-from aiogram import Router, F, Bot, Dispatcher
+from aiogram import Bot, Dispatcher, Router, F
+from aiogram.types import (
+    Message, CallbackQuery,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
+    InlineKeyboardMarkup, InlineKeyboardButton,
+)
+from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import (
-    Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, 
-    ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
-)
-from aiogram.filters import CommandStart, Command
+from aiogram.fsm.storage.memory import MemoryStorage
 
-from telethon import TelegramClient, functions
-from telethon.sessions import StringSession
-from telethon.errors import SessionPasswordNeededError
-from PIL import Image, ImageDraw, ImageFont
+# ═══════════════════════════════════════════════════════════════
+# SOZLAMALAR
+# ═══════════════════════════════════════════════════════════════
 
-# Logging sozlamalari
-logging.basicConfig(level=logging.INFO)
-
-# Aiogram Router
-router = Router()
-
-# ---------------------------------------------------------------------
-# CONFIGURATION (API Sozlamalarini shu yerga kiriting)
-# ---------------------------------------------------------------------
-API_ID = 1161696212               # my.telegram.org dan olingan API_ID
-API_HASH = "b90611f46f1a08fe9584828ff1425bc4"     # my.telegram.org dan olingan API_HASH
-BOT_TOKEN = "8518801019:AAEh9uq0drFoybCER4tNQxU5Ah1DCdIeWQ8"   # BotFather bergan TOKEN
-
+BOT_TOKEN = "BOTINGIZ_TOKENINI_SHU_YERGA_YOZING"
 DB_PATH = "soatbot.db"
 
-# ---------------------------------------------------------------------
-# FSM HOLATLARI (STATES)
-# ---------------------------------------------------------------------
-class RegistrationStates(StatesGroup):
-    waiting_phone = State()
-    waiting_code = State()
-    waiting_password = State()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+router = Router()
 
-class PhotoClockStates(StatesGroup):
-    waiting_photo = State()
-    waiting_font_style = State()
-    waiting_color = State()
+# ═══════════════════════════════════════════════════════════════
+# 3 TILLI LUG'AT
+# ═══════════════════════════════════════════════════════════════
 
-class AdminStates(StatesGroup):
-    waiting_code = State()
-    giving_coins = State()
+TEXTS = {
+    "welcome": {
+        "uz": (
+            "Assalomu alaykum! 👋\n"
+            "«@cloc_qoy_bot» ga Xush kelibsiz.\n\n"
+            "Bot orqali quyidagilarni amalga oshirishingiz mumkin:\n\n"
+            "⏰ Profilga jonli soat o'rnatish\n"
+            "🖼 Profil rasmiga soat qo'yish\n"
+            "🎁 Coin yig'ish va do'stlarni taklif qilish\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "ru": (
+            "Ассаламу алейкум! 👋\n"
+            "Добро пожаловать в «@cloc_qoy_bot».\n\n"
+            "С помощью бота вы можете:\n\n"
+            "⏰ Установить живые часы в профиль\n"
+            "🖼 Добавить часы на фото профиля\n"
+            "🎁 Собирать монеты и приглашать друзей\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "en": (
+            "Assalomu alaykum! 👋\n"
+            "Welcome to «@cloc_qoy_bot».\n\n"
+            "With this bot you can:\n\n"
+            "⏰ Set live clock on your profile\n"
+            "🖼 Add clock to your profile photo\n"
+            "🎁 Collect coins and invite friends\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+    },
+    "choose_lang": {
+        "uz": "Tilni tanlang 👇",
+        "ru": "Выберите язык 👇",
+        "en": "Choose language 👇",
+    },
+    "lang_done": {
+        "uz": "✅ Til o'zbek tiliga o'zgartirildi!",
+        "ru": "✅ Язык изменён на русский!",
+        "en": "✅ Language changed to English!",
+    },
+    "main_menu": {
+        "uz": (
+            "🤖 <b>JONLI SOAT BOTI</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "✨ Profilingizga jonli Toshkent vaqtini o'rnating!\n\n"
+            "👇 Bo'limni tanlang:"
+        ),
+        "ru": (
+            "🤖 <b>БОТ ЖИВЫХ ЧАСОВ</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "✨ Установите живое время Ташкента в профиль!\n\n"
+            "👇 Выберите раздел:"
+        ),
+        "en": (
+            "🤖 <b>LIVE CLOCK BOT</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "✨ Set live Tashkent time on your profile!\n\n"
+            "👇 Choose a section:"
+        ),
+    },
+    "btn_login": {
+        "uz": "🔐 Telegram ulanish",
+        "ru": "🔐 Подключить Telegram",
+        "en": "🔐 Connect Telegram",
+    },
+    "btn_clock": {
+        "uz": "⚙️ Soat Sozlamalari",
+        "ru": "⚙️ Настройки часов",
+        "en": "⚙️ Clock Settings",
+    },
+    "btn_coins": {
+        "uz": "🎁 Coin Yig'ish & Referal",
+        "ru": "🎁 Монеты & Реферал",
+        "en": "🎁 Coins & Referral",
+    },
+    "btn_balance": {
+        "uz": "💰 Balans & Do'kon",
+        "ru": "💰 Баланс & Магазин",
+        "en": "💰 Balance & Shop",
+    },
+    "btn_top": {
+        "uz": "🏆 Top Foydalanuvchilar",
+        "ru": "🏆 Топ пользователей",
+        "en": "🏆 Top Users",
+    },
+    "btn_lang": {
+        "uz": "🌐 Tilni o'zgartirish",
+        "ru": "🌐 Сменить язык",
+        "en": "🌐 Change Language",
+    },
+    "btn_back": {
+        "uz": "⬅️ Orqaga",
+        "ru": "⬅️ Назад",
+        "en": "⬅️ Back",
+    },
+    "wrong_lang": {
+        "uz": "❌ Iltimos, quyidagi tugmalardan birini bosing!",
+        "ru": "❌ Пожалуйста, нажмите одну из кнопок!",
+        "en": "❌ Please press one of the buttons!",
+    },
+    "coming_soon": {
+        "uz": "⏳ Bu funksiya keyingi bosqichda qo'shiladi...",
+        "ru": "⏳ Эта функция будет добавлена позже...",
+        "en": "⏳ This feature will be added later...",
+    },
+}
 
-# Global saqlagichlar
-_pending_clients = {}
-_active_clock_tasks = {}
-_user_profile_photos = {}
 
-# ---------------------------------------------------------------------
-# DATABASE MODULI (SQLITE)
-# ---------------------------------------------------------------------
-def db_execute(query: str, params: tuple = (), fetchone=False, fetchall=False, commit=False):
-    conn = sqlite3.connect(DB_PATH, timeout=20)
-    cursor = conn.cursor()
-    cursor.execute(query, params)
-    
-    result = None
-    if fetchone:
-        result = cursor.fetchone()
-    elif fetchall:
-        result = cursor.fetchall()
-        
-    if commit:
-        conn.commit()
-        
-    conn.close()
-    return result
+def t(key, lang="uz"):
+    """Tarjima olish"""
+    entry = TEXTS.get(key, {})
+    return entry.get(lang, entry.get("uz", f"[{key}]"))
+
+
+# ═══════════════════════════════════════════════════════════════
+# DATABASE (MA'LUMOTLAR BAZASI)
+# ═══════════════════════════════════════════════════════════════
+
+def _db(query, params=(), fetchone=False, fetchall=False, commit=False):
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=20)
+        cur = conn.cursor()
+        cur.execute(query, params)
+        result = None
+        if fetchone:
+            result = cur.fetchone()
+        elif fetchall:
+            result = cur.fetchall()
+        if commit:
+            conn.commit()
+        return result
+    except sqlite3.Error as e:
+        logger.error(f"DB xato: {e}")
+        if commit and conn:
+            conn.rollback()
+    finally:
+        if conn:
+            conn.close()
+
+
+async def db(query, params=(), fetchone=False, fetchall=False, commit=False):
+    return await asyncio.to_thread(_db, query, params, fetchone, fetchall, commit)
+
 
 def init_db():
-    db_execute("""
+    """Bazani yaratish"""
+    _db("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            phone TEXT,
+            user_id    INTEGER PRIMARY KEY,
+            username   TEXT,
+            full_name  TEXT,
+            language   TEXT DEFAULT NULL,
+            phone      TEXT,
             session_string TEXT,
-            coins INTEGER DEFAULT 0,
-            clock_status TEXT DEFAULT 'stopped',
-            clock_style INTEGER DEFAULT 1,
+            coins      INTEGER DEFAULT 0,
+            clock_status   TEXT DEFAULT 'stopped',
+            clock_style    INTEGER DEFAULT 1,
             photo_clock_active INTEGER DEFAULT 0,
-            photo_style INTEGER DEFAULT 1,
-            photo_color INTEGER DEFAULT 1
+            photo_style    INTEGER DEFAULT 1,
+            photo_color    INTEGER DEFAULT 1,
+            referrer_id    INTEGER,
+            last_bonus     TEXT,
+            created_at     TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """, commit=True)
-    
-    db_execute("""
+
+    _db("""
         CREATE TABLE IF NOT EXISTS system_settings (
-            key TEXT PRIMARY KEY,
+            key   TEXT PRIMARY KEY,
             value TEXT
         )
     """, commit=True)
-    
-    db_execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('admin_code', '1234')", commit=True)
+
+    _db("""
+        CREATE TABLE IF NOT EXISTS user_styles (
+            user_id  INTEGER,
+            style_id INTEGER,
+            PRIMARY KEY (user_id, style_id)
+        )
+    """, commit=True)
+
+    # Standart sozlamalar
+    defaults = {
+        "admin_code": "AzA1221",
+        "daily_bonus": "10",
+        "ref_bonus": "20",
+        "photo_clock_price": "25",
+        "admin_contact": "@admin",
+        "support_text": "Adminga yozing.",
+    }
+    for k, v in defaults.items():
+        _db("INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)", (k, v), commit=True)
+
 
 init_db()
 
-def get_setting(key: str) -> str:
-    res = db_execute("SELECT value FROM system_settings WHERE key=?", (key,), fetchone=True)
-    return res[0] if res else ""
 
-def register_or_update_user(user_id: int, username: str):
-    db_execute("""
-        INSERT INTO users (user_id, username) VALUES (?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET username=excluded.username
-    """, (user_id, username), commit=True)
+# ═══════════════════════════════════════════════════════════════
+# DATABASE YORDAMCHI FUNKSIYALAR
+# ═══════════════════════════════════════════════════════════════
 
-def get_user_coins(user_id: int) -> int:
-    res = db_execute("SELECT coins FROM users WHERE user_id=?", (user_id,), fetchone=True)
-    return res[0] if res and res[0] is not None else 0
+async def get_user_lang(user_id):
+    """Foydalanuvchi tilini olish"""
+    r = await db("SELECT language FROM users WHERE user_id=?", (user_id,), fetchone=True)
+    return r[0] if r and r[0] else None
 
-def add_user_coins(user_id: int, amount: int):
-    db_execute("UPDATE users SET coins = COALESCE(coins, 0) + ? WHERE user_id=?", (amount, user_id), commit=True)
 
-# ---------------------------------------------------------------------
-# STYLES & COLOR PALETTES
-# ---------------------------------------------------------------------
-TIME_STYLES = {
-    1: {"name": "1. Klassik", "digits": {"0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9"}},
-    2: {"name": "2. Kichik", "digits": {"0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉"}},
-    3: {"name": "3. Tepada", "digits": {"0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹"}},
-    4: {"name": "4. Qavsli", "prefix": "[", "suffix": "]", "digits": {"0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9"}}
+async def set_user_lang(user_id, lang):
+    """Foydalanuvchi tilini saqlash"""
+    await db("UPDATE users SET language=? WHERE user_id=?", (lang, user_id), commit=True)
+
+
+
+async def register_user(user_id, username, full_name, ref_id=None):
+    """Foydalanuvchini ro'yxatdan o'tkazish"""
+    existing = await db("SELECT user_id FROM users WHERE user_id=?", (user_id,), fetchone=True)
+    if not existing:
+        ref = ref_id if ref_id and ref_id != user_id else None
+        await db(
+            "INSERT INTO users (user_id, username, full_name, referrer_id) VALUES (?, ?, ?, ?)",
+            (user_id, username, full_name, ref),
+            commit=True,
+        )
+        # Referal bonus
+        if ref:
+            r = await db("SELECT value FROM system_settings WHERE key='ref_bonus'", fetchone=True)
+            bonus = int(r[0]) if r else 20
+            await db("UPDATE users SET coins = coins + ? WHERE user_id=?", (bonus, ref), commit=True)
+    else:
+        await db(
+            "UPDATE users SET username=?, full_name=? WHERE user_id=?",
+            (username, full_name, user_id),
+            commit=True,
+        )
+
+
+async def get_setting(key, default=""):
+    r = await db("SELECT value FROM system_settings WHERE key=?", (key,), fetchone=True)
+    return r[0] if r and r[0] else default
+
+
+async def get_user_coins(user_id):
+    r = await db("SELECT coins FROM users WHERE user_id=?", (user_id,), fetchone=True)
+    return r[0] if r and r[0] is not None else 0
+
+
+# ═══════════════════════════════════════════════════════════════
+# FSM HOLATLARI
+# ═══════════════════════════════════════════════════════════════
+
+class LangState(StatesGroup):
+    choosing = State()
+
+
+# ═══════════════════════════════════════════════════════════════
+# KLAVIATURALAR (TUGMALAR)
+# ═══════════════════════════════════════════════════════════════
+
+LANG_MAP = {
+    "🇺🇿 O'zbekcha": "uz",
+    "🇷🇺 Русский": "ru",
+    "🇺🇸 English": "en",
 }
 
-COLOR_PALETTES = {
-    1: {"name": "⚪️ Oq", "color": (255, 255, 255)},
-    2: {"name": "🟡 Oltin", "color": (255, 215, 0)},
-    3: {"name": "🔵 Moviy", "color": (0, 255, 255)},
-    4: {"name": "🌸 Pushti", "color": (255, 105, 180)}
-}
 
-def format_time_for_nick(style_id: int) -> str:
-    tashkent_tz = pytz.timezone("Asia/Tashkent")
-    now = datetime.now(tashkent_tz)
-    time_str = now.strftime("%H:%M")
-    style = TIME_STYLES.get(style_id, TIME_STYLES[1])
-    mapping = style.get("digits", {})
-    formatted = "".join(mapping.get(char, char) for char in time_str)
-    return f"{style.get('prefix', '')}{formatted}{style.get('suffix', '')}"
-
-def draw_clock_on_image_centered(image_bytes: bytes, font_style_id: int, color_id: int) -> bytes:
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    draw = ImageDraw.Draw(img)
-    tashkent_tz = pytz.timezone("Asia/Tashkent")
-    now_time = datetime.now(tashkent_tz).strftime("%H:%M")
-    
-    width, height = img.size
-    font_size = int(height * 0.14)
-    
-    try:
-        font = ImageFont.truetype("arial.ttf", font_size)
-    except IOError:
-        font = ImageFont.load_default()
-        
-    text = f"{now_time}"
-    if font_style_id == 2: text = f"• {now_time} •"
-    elif font_style_id == 3: text = f"[{now_time}]"
-
-    text_color = COLOR_PALETTES.get(color_id, COLOR_PALETTES[1])["color"]
-
-    bbox = draw.textbbox((0, 0), text, font=font)
-    text_width, text_height = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    
-    x = (width - text_width) / 2
-    y = (height - text_height) / 2
-    
-    padding = 15
-    draw.rectangle([x - padding, y - padding, x + text_width + padding, y + text_height + padding], fill=(0, 0, 0, 140))
-    draw.text((x, y), text, font=font, fill=text_color)
-    
-    output = io.BytesIO()
-    img.save(output, format="JPEG", quality=95)
-    return output.getvalue()
-
-# ---------------------------------------------------------------------
-# BACKGROUND TASK (SOATNI AVTOMATIK YANGILAB TURISH)
-# ---------------------------------------------------------------------
-async def run_user_clock_service(user_id: int, session_string: str):
-    client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
-    try:
-        await client.connect()
-        if not await client.is_user_authorized():
-            return
-
-        me = await client.get_me()
-        base_name = me.first_name.split()[0] if me and me.first_name else "User"
-
-        last_min = -1
-        while True:
-            u_info = db_execute("SELECT clock_status, clock_style, photo_clock_active, photo_style, photo_color FROM users WHERE user_id=?", (user_id,), fetchone=True)
-            if not u_info or u_info[0] != 'active':
-                break
-
-            status, style_id, photo_active, p_style, p_color = u_info
-            tashkent_tz = pytz.timezone("Asia/Tashkent")
-            now = datetime.now(tashkent_tz)
-
-            if now.minute != last_min:
-                # 1. Nik soati
-                clock_text = format_time_for_nick(style_id or 1)
-                try:
-                    await client(functions.account.UpdateProfileRequest(first_name=f"{base_name} {clock_text}"))
-                except Exception as e:
-                    logging.error(f"Nik xatosi: {e}")
-
-                # 2. Glavniy rasm soati
-                if photo_active and user_id in _user_profile_photos and _user_profile_photos[user_id]:
-                    try:
-                        raw_photo = _user_profile_photos[user_id][0]
-                        edited_bytes = draw_clock_on_image_centered(raw_photo, p_style or 1, p_color or 1)
-                        
-                        photos = await client.get_profile_photos('me')
-                        if photos:
-                            await client(functions.photos.DeletePhotosRequest(id=photos))
-
-                        file = await client.upload_file(edited_bytes, file_name="profile_clock.jpg")
-                        await client(functions.photos.UploadProfilePhotoRequest(file=file))
-                    except Exception as e:
-                        logging.error(f"Rasm xatosi: {e}")
-
-                last_min = now.minute
-
-            sleep_sec = 60 - now.second
-            await asyncio.sleep(sleep_sec)
-
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        logging.error(f"Task xatosi ({user_id}): {e}")
-    finally:
-        if client.is_connected():
-            await client.disconnect()
-
-# ---------------------------------------------------------------------
-# BOT HANDLERLARI
-# ---------------------------------------------------------------------
-@router.message(CommandStart())
-async def start_cmd(message: Message):
-    register_or_update_user(message.from_user.id, message.from_user.username)
-    text = (
-        "🤖 **JONLI SOAT BOTIGA XUSH KELIBSIZ!**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Profilingizga jonli Toshkent vaqtini o'rnating."
+def lang_keyboard():
+    """Til tanlash tugmalari (Reply Keyboard)"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🇺🇿 O'zbekcha")],
+            [KeyboardButton(text="🇷🇺 Русский")],
+            [KeyboardButton(text="🇺🇸 English")],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
     )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔐 Telegram ulanish", callback_data="login")],
-        [InlineKeyboardButton(text="⚙️ Soat Sozlamalari", callback_data="main_clock_menu")],
-        [InlineKeyboardButton(text="💰 Balans & Coin", callback_data="user_balance_menu")],
-        [InlineKeyboardButton(text="🏆 Top Foydalanuvchilar", callback_data="show_leaderboard")]
+
+
+def main_menu_keyboard(lang="uz"):
+    """Asosiy menyu tugmalari (Inline Keyboard)"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t("btn_login", lang), callback_data="login")],
+        [InlineKeyboardButton(text=t("btn_clock", lang), callback_data="main_clock_menu")],
+        [InlineKeyboardButton(text=t("btn_coins", lang), callback_data="earn_coins_menu")],
+        [InlineKeyboardButton(text=t("btn_balance", lang), callback_data="user_balance_menu")],
+        [InlineKeyboardButton(text=t("btn_top", lang), callback_data="show_leaderboard")],
+        [InlineKeyboardButton(text=t("btn_lang", lang), callback_data="change_language")],
     ])
-    await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
-@router.callback_query(F.data == "login")
-async def start_registration(call: CallbackQuery, state: FSMContext):
-    text = "🔐 **TELEGRAM BILAN ULANISH**\n\nIltimos, telefon raqamingizni yuboring:"
-    keyboard = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="📱 Telefon raqamni yuborish", request_contact=True)]], resize_keyboard=True, one_time_keyboard=True)
-    await call.message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
-    await state.set_state(RegistrationStates.waiting_phone)
-    await call.answer()
 
-@router.message(RegistrationStates.waiting_phone)
-async def process_phone(message: Message, state: FSMContext):
-    phone = message.contact.phone_number if message.contact else message.text.strip()
-    if not phone.startswith("+"): phone = "+" + phone
+# ═══════════════════════════════════════════════════════════════
+# BOSQICH 1: /start — WELCOME XABARI
+# ═══════════════════════════════════════════════════════════════
 
-    msg = await message.answer("🔄 *Kod yuborilmoqda...*", parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
-    try:
-        client = TelegramClient(StringSession(), API_ID, API_HASH)
-        await client.connect()
-        await client.send_code_request(phone)
-        _pending_clients[message.from_user.id] = client
-    except Exception as e:
-        await msg.edit_text(f"❌ Xatolik: `{e}`", parse_mode="Markdown")
-        await state.clear()
-        return
-
-    await state.update_data(phone=phone)
-    await state.set_state(RegistrationStates.waiting_code)
-    await msg.edit_text("📩 **Kodni kiriting:**\n(SMS orqali kelgan kodni harf aralashtirib yuboring, masalan: `5a4b3c`)", parse_mode="Markdown")
-
-@router.message(RegistrationStates.waiting_code)
-async def process_code(message: Message, state: FSMContext):
-    extracted_code = "".join(filter(str.isdigit, message.text))
-    data = await state.get_data()
-    client = _pending_clients.get(message.from_user.id)
-
-    if not client:
-        await message.answer("❌ Sessiya eskirgan.")
-        await state.clear()
-        return
-
-    try:
-        await client.sign_in(phone=data.get("phone"), code=extracted_code)
-    except SessionPasswordNeededError:
-        await state.set_state(RegistrationStates.waiting_password)
-        await message.answer("🔐 **2FA Parolingizni kiriting:**")
-        return
-    except Exception as e:
-        await message.answer(f"❌ Xatolik: `{e}`")
-        await state.clear()
-        return
-
-    session_string = client.session.save()
-    db_execute("UPDATE users SET phone=?, session_string=? WHERE user_id=?", (data.get("phone"), session_string, message.from_user.id), commit=True)
-    await client.disconnect()
-    _pending_clients.pop(message.from_user.id, None)
-
-    await message.answer("🎉 **Muvaffaqiyatli ulandi!**", parse_mode="Markdown")
+@router.message(CommandStart())
+async def cmd_start(message: Message, state: FSMContext):
+    # Oldingi holatni tozalash
     await state.clear()
 
-@router.callback_query(F.data == "main_clock_menu")
-async def show_main_clock_options(call: CallbackQuery):
-    text = "⚙️ **SOAT SOZLAMALARI:**"
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Nik soati", callback_data="set_nick_clock")],
-        [InlineKeyboardButton(text="🖼 Glavniy rasm soati", callback_data="set_photo_clock")],
-        [InlineKeyboardButton(text="⏹ Soatni o'chirish", callback_data="stop_clock")]
-    ])
-    await call.message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
-    await call.answer()
+    user_id = message.from_user.id
+    username = message.from_user.username or ""
+    full_name = message.from_user.full_name or "User"
 
-@router.callback_query(F.data == "set_nick_clock")
-async def show_nick_clock_menu(call: CallbackQuery):
-    text = "✏️ **Nik uchun stil tanlang:**\n"
-    btns = []
-    for s_id, s_data in TIME_STYLES.items():
-        ex = format_time_for_nick(s_id)
-        btns.append([InlineKeyboardButton(text=f"{s_data['name']} ({ex})", callback_data=f"select_style_{s_id}")])
-    await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=btns), parse_mode="Markdown")
-    await call.answer()
+    # Referal tekshirish
+    args = message.text.split()
+    ref_id = None
+    if len(args) > 1 and args[1].isdigit():
+        ref_id = int(args[1])
 
-@router.callback_query(F.data.startswith("select_style_"))
-async def select_nick_clock_style(call: CallbackQuery):
-    style_id = int(call.data.split("_")[-1])
-    user_id = call.from_user.id
-    
-    u = db_execute("SELECT session_string FROM users WHERE user_id=?", (user_id,), fetchone=True)
-    if not u or not u[0]:
-        await call.message.answer("⚠️ Avval ro'yxatdan o'ting!")
-        await call.answer()
+    # Bazaga yozish
+    await register_user(user_id, username, full_name, ref_id)
+
+    # Agar oldin til tanlagan bo'lsa — to'g'ridan-to'g'ri menyuga
+    saved_lang = await get_user_lang(user_id)
+    if saved_lang:
+        await message.answer(
+            t("main_menu", saved_lang),
+            reply_markup=main_menu_keyboard(saved_lang),
+            parse_mode="HTML",
+        )
         return
 
-    db_execute("UPDATE users SET clock_status='active', clock_style=? WHERE user_id=?", (style_id, user_id), commit=True)
-    
-    if user_id in _active_clock_tasks:
-        _active_clock_tasks[user_id].cancel()
-    
-    task = asyncio.create_task(run_user_clock_service(user_id, u[0]))
-    _active_clock_tasks[user_id] = task
+    # ━━━ BIRINCHI MARTA KIRGAN ━━━
+    # 1. Welcome xabari
+    welcome = (
+        f"Assalomu alaykum! 👋\n"
+        f"«@cloc_qoy_bot» ga Xush kelibsiz.\n\n"
+        f"Bot orqali quyidagilarni amalga oshirishingiz mumkin:\n\n"
+        f"⏰ Profilga jonli soat o'rnatish\n"
+        f"🖼 Profil rasmiga soat qo'yish\n"
+        f"🎁 Coin yig'ish va do'stlarni taklif qilish\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━"
+    )
+    await message.answer(welcome)
 
-    await call.message.answer("✅ **Nik soati ishga tushirildi!**", parse_mode="Markdown")
+    # 2. Til tanlash
+    await message.answer(
+        "Tilni tanlang 👇\nВыберите язык 👇\nChoose language 👇",
+        reply_markup=lang_keyboard(),
+    )
+    await state.set_state(LangState.choosing)
+
+
+# ═══════════════════════════════════════════════════════════════
+# BOSQICH 2: TIL TANLASH
+# ═══════════════════════════════════════════════════════════════
+
+@router.message(LangState.choosing)
+async def process_lang(message: Message, state: FSMContext):
+    text = message.text.strip()
+    lang_code = LANG_MAP.get(text)
+
+    # Noto'g'ri tugma bosilsa
+    if not lang_code:
+        await message.answer(
+            "❌ Iltimos, quyidagi tugmalardan birini bosing!\n"
+            "❌ Пожалуйста, нажмите одну из кнопок!\n"
+            "❌ Please press one of the buttons!",
+            reply_markup=lang_keyboard(),
+        )
+        return
+
+    user_id = message.from_user.id
+
+    # Tilni bazaga saqlash
+    await set_user_lang(user_id, lang_code)
+
+    # Holatni tozalash
+    await state.clear()
+
+    # Tasdiqlash xabari
+    await message.answer(
+        t("lang_done", lang_code),
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+    # ━━━ ASOSIY MENYUNI KO'RSATISH ━━━
+    await message.answer(
+        t("main_menu", lang_code),
+        reply_markup=main_menu_keyboard(lang_code),
+        parse_mode="HTML",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# BOSQICH 3: ASOSIY MENYUGA QAYTISH
+# ═══════════════════════════════════════════════════════════════
+
+@router.callback_query(F.data == "main_menu")
+async def back_to_menu(call: CallbackQuery):
+    lang = await get_user_lang(call.from_user.id) or "uz"
+    await call.message.edit_text(
+        t("main_menu", lang),
+        reply_markup=main_menu_keyboard(lang),
+        parse_mode="HTML",
+    )
     await call.answer()
 
-@router.callback_query(F.data == "stop_clock")
-async def stop_clock_handler(call: CallbackQuery):
-    user_id = call.from_user.id
-    db_execute("UPDATE users SET clock_status='stopped', photo_clock_active=0 WHERE user_id=?", (user_id,), commit=True)
-    
-    if user_id in _active_clock_tasks:
-        _active_clock_tasks[user_id].cancel()
-        _active_clock_tasks.pop(user_id, None)
 
-    await call.message.answer("⏹ **Barcha soatlar to'xtatildi!**", parse_mode="Markdown")
+# ═══════════════════════════════════════════════════════════════
+# BOSQICH 4: TIL O'ZGARTIRISH (MENYUDAN)
+# ═══════════════════════════════════════════════════════════════
+
+@router.callback_query(F.data == "change_language")
+async def change_lang(call: CallbackQuery, state: FSMContext):
+    await call.message.answer(
+        "Tilni tanlang 👇\nВыберите язык 👇\nChoose language 👇",
+        reply_markup=lang_keyboard(),
+    )
+    await state.set_state(LangState.choosing)
     await call.answer()
+
+
+# ═══════════════════════════════════════════════════════════════
+# PLACEHOLDER TUGMALAR (Keyingi bosqichda to'ldiramiz)
+# ═══════════════════════════════════════════════════════════════
+
+@router.callback_query(F.data == "login")
+async def pl_login(call: CallbackQuery):
+    lang = await get_user_lang(call.from_user.id) or "uz"
+    await call.answer(t("coming_soon", lang), show_alert=True)
+
+
+@router.callback_query(F.data == "main_clock_menu")
+async def pl_clock(call: CallbackQuery):
+    lang = await get_user_lang(call.from_user.id) or "uz"
+    await call.answer(t("coming_soon", lang), show_alert=True)
+
+
+@router.callback_query(F.data == "earn_coins_menu")
+async def pl_coins(call: CallbackQuery):
+    lang = await get_user_lang(call.from_user.id) or "uz"
+    await call.answer(t("coming_soon", lang), show_alert=True)
+
 
 @router.callback_query(F.data == "user_balance_menu")
-async def show_balance_menu(call: CallbackQuery):
-    coins = get_user_coins(call.from_user.id)
-    text = f"💰 **Balansingiz:** `{coins} Coin`"
-    await call.message.answer(text, parse_mode="Markdown")
-    await call.answer()
+async def pl_balance(call: CallbackQuery):
+    lang = await get_user_lang(call.from_user.id) or "uz"
+    await call.answer(t("coming_soon", lang), show_alert=True)
+
 
 @router.callback_query(F.data == "show_leaderboard")
-async def show_leaderboard_handler(call: CallbackQuery):
-    top_users = db_execute("SELECT username, coins FROM users ORDER BY coins DESC LIMIT 5", fetchall=True)
-    text = "🏆 **TOP-5 REYTING**\n\n"
-    if top_users:
-        for u_name, coins in top_users:
-            text += f"• @{u_name or 'User'} — `{coins or 0} Coin`\n"
-    await call.message.answer(text, parse_mode="Markdown")
-    await call.answer()
+async def pl_top(call: CallbackQuery):
+    lang = await get_user_lang(call.from_user.id) or "uz"
+    await call.answer(t("coming_soon", lang), show_alert=True)
 
-# ---------------------------------------------------------------------
-# ISHGA TUSHIRISH (MAIN)
-# ---------------------------------------------------------------------
+
+# ═══════════════════════════════════════════════════════════════
+# BOTNI ISHGA TUSHIRISH
+# ═══════════════════════════════════════════════════════════════
+
 async def main():
     bot = Bot(token=BOT_TOKEN)
-    dp = Dispatcher()
+    dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
-    
-    logging.info("Bot tayyor va ishga tushirildi!")
-    await dp.start_polling(bot)
+
+
+
+    logger.info("🚀 Bot ishga tushdi!")
+    await dp.start_polling(bot, skip_updates=True)
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("🛑 Bot to'xtatildi!")
