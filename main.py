@@ -1307,14 +1307,21 @@ async def resume_clocks():
 # ═══════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════
+async def on_startup(bot: Bot):
+    await resume_clocks()
+
 async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
+    
+    # 1. Router ulanganini tekshiring:
     dp.include_router(router)
-    dp.startup.register(resume_clocks)
+    
+    # 2. Startup funksiyasini to'g'ri ro'yxatdan o'tkazamiz:
+    dp.startup.register(on_startup)
+    
     logger.info("🚀 Bot ishga tushdi!")
     await dp.start_polling(bot)
- 
  
 if __name__ == "__main__":
     try:
