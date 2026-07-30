@@ -1311,9 +1311,9 @@ async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
-    dp.startup.register((resume_clocks))
+    dp.startup.register(resume_clocks)
     logger.info("🚀 Bot ishga tushdi!")
-    await dp.start_polling(bot, skip_updates=True)
+    await dp.start_polling(bot)
  
  
 if __name__ == "__main__":
