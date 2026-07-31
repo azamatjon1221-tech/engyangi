@@ -1,4 +1,4 @@
-
+# aza bot
 # S fixed · PY
 # ═══════════════════════════════════════════════════════════════
 # 🔥 JONLI SOAT BOT — MUKAMMAL VERSIYA 3.0
